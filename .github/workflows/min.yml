@@ -1,0 +1,90 @@
+name: "RDP Server - Stable Build"
+
+on:
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: "Chọn thời gian sử dụng"
+        required: true
+        default: "90"
+        type: choice
+        options:
+          - "30"
+          - "60"
+          - "90"
+          - "120"
+          - "150"
+          - "180"
+          - "210"
+          - "240"
+          - "270"
+          - "300"
+          - "330"
+          - "360"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    steps:
+
+      - name: Init UTF8
+        shell: powershell
+        run: |
+          chcp 65001
+
+      - name: Enable RDP
+        shell: powershell
+        run: |
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+
+      - name: Disable Login Restrictions
+        shell: powershell
+        run: |
+          reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" /v UserAuthentication /t REG_DWORD /d 0 /f
+          reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" /v SecurityLayer /t REG_DWORD /d 0 /f
+
+      - name: Create User
+        shell: powershell
+        run: |
+          $user = "ngancute"
+          $pass = "ngan@1212"
+          $secure = ConvertTo-SecureString $pass -AsPlainText -Force
+
+          if (Get-LocalUser -Name $user -ErrorAction SilentlyContinue) {
+            Remove-LocalUser -Name $user -ErrorAction SilentlyContinue
+          }
+
+          New-LocalUser -Name $user -Password $secure -AccountNeverExpires
+          Add-LocalGroupMember -Group "Administrators" -Member $user
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member $user
+
+          echo "RDP_USER=$user" >> $env:GITHUB_ENV
+          echo "RDP_PASS=$pass" >> $env:GITHUB_ENV
+
+      - name: Show Login Info
+        shell: powershell
+        run: |
+          $ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object {
+            $_.IPAddress -notlike "169.*" -and $_.IPAddress -ne "127.0.0.1"
+          })[0].IPAddress
+
+          Write-Host ""
+          Write-Host "==============================================="
+          Write-Host " RDP SERVER READY"
+          Write-Host (" Host : {0}" -f $ip)
+          Write-Host (" User : {0}" -f $env:RDP_USER)
+          Write-Host (" Pass : {0}" -f $env:RDP_PASS)
+          Write-Host "==============================================="
+
+          echo "RDP_HOST=$ip" >> $env:GITHUB_ENV
+
+      - name: Keep Alive
+        shell: powershell
+        run: |
+          $minutes = ${{ github.event.inputs.duration }}
+          $end = (Get-Date).AddMinutes($minutes)
+          Write-Host "Server running until $end"
+          while ((Get-Date) -lt $end) { Start-Sleep -Seconds 20 }
